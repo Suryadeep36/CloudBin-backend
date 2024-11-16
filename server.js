@@ -75,11 +75,6 @@ app.get("/processFile", async (req, res) => {
             newFile.save();
           }
         });
-        fs.unlink(fileName, (err) => {
-          if (err) {
-            console.log(err);
-          }
-        });
       }
       chunks = [];
       res.send({
