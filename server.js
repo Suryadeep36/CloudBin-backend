@@ -50,12 +50,7 @@ app.get("/processFile", async (req, res) => {
           .slice(0, -1)
           .join(".");
         let fileName = fileNameWithOutExtension + "-" + i + ".txt";
-        fs.appendFile(fileName, chunks[i].data, (err) => {
-          if (err) {
-            console.log(err);
-          }
-        });
-        const messageId = await sendFile(fileName);
+        const messageId = await sendFile(fileName, chunks[i].data);
         await File.findOne({
           fileName: chunks[i].fileName,
         }).then((foundFile) => {
