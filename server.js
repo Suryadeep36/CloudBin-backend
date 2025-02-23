@@ -10,6 +10,8 @@ import mongoose from "mongoose";
 const app = express();
 const port = process.env.PORT || 3000;
 
+const fileStatusMap = new Map();
+
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json({ limit: "15mb" }));
 app.use(bodyParser.json());
@@ -27,6 +29,8 @@ let chunks = [];
 app.post("/uploadFile", async (req, res) => {
   const data = req.body;
   chunks.push(data);
+  fileStatusMap.set(data.fileName, "processing");
+
   res.send({
     msg: "File sent to backend",
     status: 200,
@@ -34,49 +38,44 @@ app.post("/uploadFile", async (req, res) => {
 });
 
 app.get("/processFile", async (req, res) => {
-  await File.findOne({
-    fileName: chunks[0].fileName,
-  }).then(async (foundFile) => {
+  const fileName = chunks[0]?.fileName;
+  if (!fileName) {
+    return res.send({ msg: "No file to process", status: 400 });
+  }
+
+  await File.findOne({ fileName }).then(async (foundFile) => {
     if (foundFile) {
       chunks = [];
-      res.send({
-        msg: "File already exists",
-        status: 500,
-      });
+      fileStatusMap.set(fileName, "exists");
+      res.send({ msg: "File already exists", status: 500 });
     } else {
       for (let i = 0; i < chunks.length; i++) {
-        const fileNameWithOutExtension = chunks[0].fileName
-          .split(".")
-          .slice(0, -1)
-          .join(".");
-        let fileName = fileNameWithOutExtension + "-" + i + ".txt";
-        const messageId = await sendFile(fileName, chunks[i].data);
-        await File.findOne({
-          fileName: chunks[i].fileName,
-        }).then((foundFile) => {
+        const fileNameWithoutExt = fileName.split(".").slice(0, -1).join(".");
+        let chunkFileName = `${fileNameWithoutExt}-${i}.txt`;
+
+        const messageId = await sendFile(chunkFileName, chunks[i].data);
+
+        await File.findOne({ fileName }).then((foundFile) => {
           if (foundFile) {
-            foundFile.groupMessageId.push({
-              messageId: messageId,
-            });
+            foundFile.groupMessageId.push({ messageId });
             foundFile.save();
           } else {
-            const groupMessageID = [];
-            groupMessageID.push({
-              messageId: messageId,
-            });
             const newFile = new File({
-              fileName: chunks[i].fileName,
+              fileName,
               fileType: chunks[i].fileType,
-              chunkName: fileName,
+              chunkName: chunkFileName,
               fileSize: chunks[i].fileSize,
               lastModified: chunks[i].lastModifiedDate,
-              groupMessageId: groupMessageID,
+              groupMessageId: [{ messageId }],
             });
             newFile.save();
           }
         });
       }
+
       chunks = [];
+      fileStatusMap.set(fileName, "completed");
+
       res.send({
         msg: "Entire file sent to backend",
         status: 200,
@@ -85,12 +84,23 @@ app.get("/processFile", async (req, res) => {
   });
 });
 
+
 app.get("/getAllFiles", async (req, res) => {
   await File.find({}).then((allFiles) => {
     res.send({
       data: allFiles,
     });
   });
+});
+
+app.get("/fileStatus", (req, res) => {
+  const { fileName } = req.query;
+
+  if (!fileStatusMap.has(fileName)) {
+    return res.send({ status: "not found" });
+  }
+
+  res.send({ status: fileStatusMap.get(fileName) });
 });
 
 app.post("/getAttechmentUrlById", async (req, res) => {
